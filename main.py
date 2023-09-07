@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # Load data
-data = pd.read_csv(r"C:\Users\sharsh\Desktop\fifa\player.csv")  # Update with your actual data source
+data = pd.read_csv("player.csv")  # Update with your actual data source
 
 # Sidebar filters
 st.sidebar.header("Filters")
