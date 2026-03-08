@@ -1,11 +1,10 @@
-mplsoccer
+streamlit
 pandas
 numpy
-streamlit
+plotly
 matplotlib
 seaborn
-plotly
-soccerplots
+scikit-learn
 scipy
 Pillow
-scikit-learn
+statsmodels

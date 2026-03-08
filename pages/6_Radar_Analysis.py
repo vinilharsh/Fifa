@@ -1,5 +1,4 @@
 import streamlit as st
-from soccerplots.radar_chart import Radar
 import pandas as pd
 import plotly.graph_objects as go
 from utils.data_loader import load_shooting_season, load_shooting_data
@@ -14,9 +13,7 @@ RADAR_PARAMS = [
 ]
 
 DROP_COLS = ["Rk", "Nation", "Pos", "Squad", "Age", "Born", "90s", "FK", "PK", "PKatt", "Season"]
-
 FILLNA_COLS_BY_POS = ["SoT%", "G/Sh", "G/SoT", "Dist", "npxG/Sh"]
-
 FALLBACK_COLS = ["Dist", "xG", "npxG", "G-xG", "np:G-xG", "npxG/Sh"]
 
 SEASON_CONFIG = {
@@ -163,67 +160,94 @@ def prepare_shooting_data(config):
     return df
 
 
-def calculate_ranges(df):
-    ranges = []
-    for param in RADAR_PARAMS:
-        lo = df[param].min() * 0.95
-        hi = df[param].max() * 1.05
-        ranges.append((lo, hi))
-    return ranges
+def normalize_values(df):
+    """Normalize all radar params to 0-100 scale for comparable radar display."""
+    normed = df.copy()
+    for p in RADAR_PARAMS:
+        pmin = df[p].min()
+        pmax = df[p].max()
+        if pmax - pmin > 0:
+            normed[p] = (df[p] - pmin) / (pmax - pmin) * 100
+        else:
+            normed[p] = 50
+    return normed
 
 
-def plot_single_radar(df, player, subtitle, ranges):
-    player_data = df[df["Player"] == player]
-    values = player_data.iloc[0].values[1:].tolist()
-    title = {
-        "title_name": player,
-        "title_color": "#000000",
-        "subtitle_name": subtitle,
-        "subtitle_color": "#B6282F",
-        "title_name_2": "Radar Chart",
-        "subtitle_name_2": "FW",
-        "subtitle_color_2": "#B6282F",
-        "title_fontsize": 18,
-        "subtitle_fontsize": 15,
-    }
-    radar = Radar(label_fontsize=12, range_fontsize=7.5)
-    fig, ax = radar.plot_radar(
-        ranges=ranges, params=RADAR_PARAMS, values=[values],
-        radar_color=["orange"], alphas=[0.4], title=title, compare=True,
+def plot_single_radar(df_norm, df_raw, player, subtitle):
+    player_norm = df_norm[df_norm["Player"] == player].iloc[0]
+    player_raw = df_raw[df_raw["Player"] == player].iloc[0]
+
+    values_norm = [player_norm[p] for p in RADAR_PARAMS]
+    values_raw = [player_raw[p] for p in RADAR_PARAMS]
+    hover_text = [f"{p}: {v:.2f}" for p, v in zip(RADAR_PARAMS, values_raw)]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=values_norm + [values_norm[0]],
+        theta=RADAR_PARAMS + [RADAR_PARAMS[0]],
+        fill="toself",
+        fillcolor="rgba(231, 76, 60, 0.25)",
+        line=dict(color="#E74C3C", width=2),
+        name=player,
+        text=hover_text + [hover_text[0]],
+        hoverinfo="text",
+    ))
+    fig.update_layout(
+        title=dict(text=f"{player} — {subtitle}", font=dict(size=18)),
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor="rgba(128,128,128,0.2)"),
+            angularaxis=dict(gridcolor="rgba(128,128,128,0.2)", linecolor="rgba(128,128,128,0.3)"),
+        ),
+        height=550,
     )
-    st.pyplot(fig)
+    apply_plotly_theme(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
 
-def plot_comparison_radar(df, player1, player2, subtitles, ranges):
-    data1 = df[df["Player"] == player1]
-    data2 = df[df["Player"] == player2]
-    values1 = data1.iloc[0].values[1:].tolist()
-    values2 = data2.iloc[0].values[1:].tolist()
-    title = {
-        "title_name": player1,
-        "title_color": "#000000",
-        "subtitle_name": subtitles[player1],
-        "subtitle_color": "#B6282F",
-        "title_name_2": player2,
-        "subtitle_name_2": subtitles[player2],
-        "subtitle_color_2": "#B6282F",
-        "title_fontsize": 18,
-        "subtitle_fontsize": 15,
-    }
-    radar = Radar(label_fontsize=12, range_fontsize=7.5)
-    fig, ax = radar.plot_radar(
-        ranges=ranges, params=RADAR_PARAMS,
-        values=[values1, values2],
-        radar_color=["Red", "Blue"], alphas=[0.75, 0.6],
-        title=title, compare=True,
+def plot_comparison_radar(df_norm, df_raw, player1, player2, subtitles):
+    p1_norm = df_norm[df_norm["Player"] == player1].iloc[0]
+    p2_norm = df_norm[df_norm["Player"] == player2].iloc[0]
+    p1_raw = df_raw[df_raw["Player"] == player1].iloc[0]
+    p2_raw = df_raw[df_raw["Player"] == player2].iloc[0]
+
+    v1 = [p1_norm[p] for p in RADAR_PARAMS]
+    v2 = [p2_norm[p] for p in RADAR_PARAMS]
+    h1 = [f"{p}: {p1_raw[p]:.2f}" for p in RADAR_PARAMS]
+    h2 = [f"{p}: {p2_raw[p]:.2f}" for p in RADAR_PARAMS]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=v1 + [v1[0]], theta=RADAR_PARAMS + [RADAR_PARAMS[0]],
+        fill="toself", fillcolor="rgba(231, 76, 60, 0.2)",
+        line=dict(color="#E74C3C", width=2),
+        name=f"{player1} ({subtitles[player1]})",
+        text=h1 + [h1[0]], hoverinfo="text",
+    ))
+    fig.add_trace(go.Scatterpolar(
+        r=v2 + [v2[0]], theta=RADAR_PARAMS + [RADAR_PARAMS[0]],
+        fill="toself", fillcolor="rgba(52, 152, 219, 0.2)",
+        line=dict(color="#3498DB", width=2),
+        name=f"{player2} ({subtitles[player2]})",
+        text=h2 + [h2[0]], hoverinfo="text",
+    ))
+    fig.update_layout(
+        title=dict(text=f"{player1} vs {player2}", font=dict(size=18)),
+        polar=dict(
+            bgcolor="rgba(0,0,0,0)",
+            radialaxis=dict(visible=True, range=[0, 100], showticklabels=False, gridcolor="rgba(128,128,128,0.2)"),
+            angularaxis=dict(gridcolor="rgba(128,128,128,0.2)", linecolor="rgba(128,128,128,0.3)"),
+        ),
+        height=550,
+        legend=dict(x=0.5, y=-0.1, xanchor="center", orientation="h"),
     )
-    st.pyplot(fig)
+    apply_plotly_theme(fig)
+    st.plotly_chart(fig, use_container_width=True)
 
 
-def plot_bar_comparison(df, player1, player2, subtitles):
-    data1 = df[df["Player"] == player1].iloc[0]
-    data2 = df[df["Player"] == player2].iloc[0]
-
+def plot_bar_comparison(df_raw, player1, player2, subtitles):
+    data1 = df_raw[df_raw["Player"] == player1].iloc[0]
+    data2 = df_raw[df_raw["Player"] == player2].iloc[0]
     vals1 = [data1[p] for p in RADAR_PARAMS]
     vals2 = [data2[p] for p in RADAR_PARAMS]
 
@@ -251,7 +275,7 @@ def plot_bar_comparison(df, player1, player2, subtitles):
 # --- App ---
 
 st.header("🎯 Radar Analysis")
-st.caption("Compare player shooting profiles using radar charts and bar comparisons.")
+st.caption("Compare player shooting profiles using interactive radar charts and bar comparisons.")
 
 st.sidebar.header("Filters")
 selected_year = st.sidebar.selectbox("Select Year", list(SEASON_CONFIG.keys()))
@@ -260,15 +284,15 @@ config = SEASON_CONFIG[selected_year]
 player_subtitles = config["players"]
 
 with st.spinner("Preparing radar data..."):
-    df = prepare_shooting_data(config)
-    ranges = calculate_ranges(df)
+    df_raw = prepare_shooting_data(config)
+    df_norm = normalize_values(df_raw)
 
 tab1, tab2, tab3 = st.tabs(["Single Player", "Player Comparison", "Bar Comparison"])
 
 with tab1:
     selected_player = st.selectbox("Select a player:", list(player_subtitles.keys()))
+    player_data = df_raw[df_raw["Player"] == selected_player].iloc[0]
 
-    player_data = df[df["Player"] == selected_player].iloc[0]
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Goals", f"{player_data['Gls']:.0f}")
     col2.metric("Shots", f"{player_data['Sh']:.0f}")
@@ -276,15 +300,15 @@ with tab1:
     col4.metric("Shot Accuracy", f"{player_data['SoT%']:.1f}%")
 
     st.divider()
-    plot_single_radar(df, selected_player, player_subtitles[selected_player], ranges)
+    plot_single_radar(df_norm, df_raw, selected_player, player_subtitles[selected_player])
 
 with tab2:
     col1, col2 = st.columns(2)
     selected_player1 = col1.selectbox("Select Player 1", list(player_subtitles.keys()))
     selected_player2 = col2.selectbox("Select Player 2", list(player_subtitles.keys()))
 
-    p1_data = df[df["Player"] == selected_player1].iloc[0]
-    p2_data = df[df["Player"] == selected_player2].iloc[0]
+    p1_data = df_raw[df_raw["Player"] == selected_player1].iloc[0]
+    p2_data = df_raw[df_raw["Player"] == selected_player2].iloc[0]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(f"{selected_player1} Goals", f"{p1_data['Gls']:.0f}")
@@ -293,11 +317,11 @@ with tab2:
     c4.metric(f"{selected_player2} xG", f"{p2_data['xG']:.1f}")
 
     st.divider()
-    plot_comparison_radar(df, selected_player1, selected_player2, player_subtitles, ranges)
+    plot_comparison_radar(df_norm, df_raw, selected_player1, selected_player2, player_subtitles)
 
 with tab3:
     st.markdown("**Interactive bar comparison** — easier to read exact values than radar charts.")
     col1, col2 = st.columns(2)
     bar_player1 = col1.selectbox("Player 1", list(player_subtitles.keys()), key="bar_p1")
     bar_player2 = col2.selectbox("Player 2", list(player_subtitles.keys()), key="bar_p2")
-    plot_bar_comparison(df, bar_player1, bar_player2, player_subtitles)
+    plot_bar_comparison(df_raw, bar_player1, bar_player2, player_subtitles)
